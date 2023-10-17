@@ -5,6 +5,7 @@ from matplotlib import pyplot as plt
 from typing import *
 from haversine import haversine
 
+
 def manhattan_distance(point1 : Tuple[float], point2: Tuple[float]) -> float:
     """
     Calculate the Manhattan distance between two points on the Earth's surface.
