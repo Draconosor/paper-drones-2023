@@ -34,7 +34,7 @@ def manhattan_distance(point1 : Tuple[float], point2: Tuple[float]) -> float:
 
 def sample_generator(sample_size: int, parking_size: int, n_trucks:int, n_drones:int, avg_demand: int = 350, std_demand: int = 50):
     np.random.seed(0)
-    data = pd.read_excel(r"C:\Users\Carlo\OneDrive - Universidad de la Sabana\MGOP\INSTANCIAS DRONES\Data Sampleo.xlsx", sheet_name = 'parking_coords')
+    data = pd.read_excel("Data Sampleo.xlsx", sheet_name = 'parking_coords')
     x_mean = data['Longitud'].mean()
     y_mean = data['Latitud'].mean()
     x_std = data['Longitud'].std()
@@ -64,7 +64,7 @@ def sample_generator(sample_size: int, parking_size: int, n_trucks:int, n_drones
     manhattan_dm = pd.DataFrame(cdist(coordinates, coordinates, metric=manhattan_distance), index=sample_coords['NODES'], columns=sample_coords['NODES']).replace(0,100000)
     euclidean_dm = pd.DataFrame(cdist(coordinates, coordinates, metric=haversine), index=sample_coords['NODES'], columns=sample_coords['NODES']).replace(0,100000)
 
-    with pd.ExcelWriter(f'C{sample_size}P{parking_size}T{n_trucks}D{n_drones}.xlsx', engine='xlsxwriter') as writer:
+    with pd.ExcelWriter(f'instances/C{sample_size}P{parking_size}T{n_trucks}D{n_drones}.xlsx', engine='xlsxwriter') as writer:
         sample_parameters.to_excel(writer, sheet_name='PARAMETROS', index = False)
         sample_demand.to_excel(writer, sheet_name='DEMANDA', index = False)
         sample_coords.set_index('NODES').to_excel(writer, sheet_name='COORDS')
