@@ -1,5 +1,6 @@
 import gams
 import os
+from time import sleep
 
 gams_path = r"C:\GAMS\44"
 folder_path = "instances"  # Replace with the path to your folder
@@ -49,10 +50,23 @@ par=MAXDDR rng=PARAMETROS!M2 rdim=0
 par=WDR rng=PARAMETROS!N2 rdim=0
 par=DISTmh rng=MANHATTAN!A1 rdim=1 cdim=1
 par=DISTec rng=EUCLI!A1 rdim=1 cdim=1
-par=DEM rng=DEMANDAS!A2 rdim=1
+par=DEM rng=DEMANDA!A2 rdim=1
 $offecho
-$CALL GDXXRW {file} trace=3 @tasks.txt
-$GDXIN {instance_name}.gdx"""
+$CALL GDXXRW input={instance_name}.xlsx output={instance_name}.gdx trace=3 @tasks.txt"""
         file.write(model)
     job = ws.add_job_from_file('Generador Instancias.gms')
     job.run()
+# Specify the list of allowed file extensions
+allowed_extensions = [".gms", ".gdx", ".lst", ".xlsx"]  # Add your desired extensions
+
+# Iterate through the files in the directory
+for filename in os.listdir(folder_path):
+    file_path = os.path.join(folder_path, filename)
+
+    # Check if the file has an extension
+    if os.path.isfile(file_path):
+        _, file_extension = os.path.splitext(filename)
+
+        # Check if the file extension is not in the allowed list
+        if file_extension not in allowed_extensions:
+            os.remove(file_path)  # Delete the file

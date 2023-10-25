@@ -3,3 +3,6 @@
 *.lst
 *.pf
 *.gsp
+*.lxi
+*.log
+/instances/*
