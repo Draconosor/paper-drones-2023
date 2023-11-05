@@ -218,4 +218,13 @@ Display x.L, y.L, v.L, s.L, z1.L, z2.L;
             if file_extension not in allowed_extensions or filename.startswith(('225')):
                 os.remove(file_path)  # Delete the file
 
-sample_generator(15,5,5,10)
+customer_sample = (5,10,15,20,25,30)
+parking_sample = (5,10,15)
+trucks_sample = (3,5,7,9,11)
+drones_sample = (5,7,9,11,13,15)
+
+for ncustomers in customer_sample:
+    for nparkings in parking_sample:
+        for ntrucks in trucks_sample:
+            for ndrones in drones_sample:
+                sample_generator(sample_size=ncustomers, parking_size=nparkings, n_trucks=ntrucks, n_drones=ndrones)
