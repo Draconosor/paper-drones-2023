@@ -6,50 +6,19 @@ from typing import *
 from haversine import haversine
 import os
 import gams
-
-
-def manhattan_distance(point1 : Tuple[float], point2: Tuple[float]) -> float:
-    """
-    Calculate the Manhattan distance between two points on the Earth's surface.
-    
-    :param point1: Tuple with latitude and longitude of the first point in degrees.
-    :param point2: Tuple with latitude and longitude of the second point in degrees.
-    
-    :return: The Manhattan distance between the two points in kilometers.
-    """
-    # Convert latitude and longitude from degrees to radians
-    lat1, lon1 = np.radians(point1)
-    lat2, lon2 = np.radians(point2)
-
-    # Calculate the absolute differences in latitude and longitude
-    delta_lat = abs(lat2 - lat1)
-    delta_lon = abs(lon2 - lon1)
-
-    # Convert the differences to kilometers (assuming Earth's radius is 6371 km)
-    lat_distance = delta_lat * 6371
-    lon_distance = delta_lon * 6371
-
-    # Calculate the Manhattan distance
-    distance = lat_distance + lon_distance
-
-    return distance
+from time import sleep
 
 def sample_generator(sample_size: int, parking_size: int, n_trucks:int, n_drones:int, avg_demand: int = 350, std_demand: int = 50):
     np.random.seed(0)
-    data = pd.read_excel("Data Sampleo.xlsx", sheet_name = 'parking_coords')
-    x_mean = data['Longitud'].mean()
-    y_mean = data['Latitud'].mean()
-    x_std = data['Longitud'].std()
-    y_std = data['Latitud'].std()
-    sample_data = {'Customer' : [f'Cliente{x}' for x in range(1,sample_size+1)],
-                'Longitud' : np.random.normal(x_mean, x_std, sample_size), 
-                'Latitud' : np.random.normal(y_mean, y_std, sample_size)}
-    sample_df = pd.DataFrame(sample_data)
-    sampled_parkings = data.loc[np.random.choice(data.index, parking_size, replace=False)].copy().reset_index(drop = True)
-    node_0 = pd.DataFrame(data = [['0', sampled_parkings['Latitud'].mean(), sampled_parkings['Longitud'].mean()]], columns=sampled_parkings.columns)
+    cols = ['node', 'latitude','longitude']
+    node_0 = pd.read_excel("Data Sampleo.xlsx", sheet_name = 'node_0')[cols]
+    parkings = pd.read_excel("Data Sampleo.xlsx", sheet_name = 'parking_coords')
+    customers = pd.read_excel("Data Sampleo.xlsx", sheet_name = 'customer_db')
+    sampled_parkings = parkings.loc[np.random.choice(parkings.index, parking_size, replace=False),cols].copy().reset_index(drop = True)
+    sampled_customers = customers.loc[np.random.choice(customers.index, sample_size, replace=False),cols].copy().reset_index(drop = True)
 
-    sample_coords = pd.concat([node_0,sampled_parkings, sample_df.rename(columns={'Customer': 'Depot'})]).rename(columns={'Depot': 'NODES', 'Longitud':'X',  'Latitud':'Y'})\
-        .reset_index(drop = True)
+
+    sample_coords = pd.concat([node_0,sampled_parkings, sampled_customers]).rename(columns={'node': 'NODES', 'longitude':'X',  'latitude':'Y'}).reset_index(drop = True)
 
     sample_parameters = pd.concat([sample_coords.NODES, 
                                    pd.Series(data = range(1,n_trucks+1), name='TRUCKS'), 
@@ -63,8 +32,10 @@ def sample_generator(sample_size: int, parking_size: int, n_trucks:int, n_drones
                                     })
     
     coordinates = sample_coords.set_index('NODES')[['Y', 'X']].to_numpy()
-    manhattan_dm = pd.DataFrame(cdist(coordinates, coordinates, metric=manhattan_distance), index=sample_coords['NODES'], columns=sample_coords['NODES']).replace(0,100000)
+    nodes = sample_coords['NODES'].unique()
     euclidean_dm = pd.DataFrame(cdist(coordinates, coordinates, metric=haversine), index=sample_coords['NODES'], columns=sample_coords['NODES']).replace(0,100000)
+    real_distances = pd.read_excel('distances.xlsx', header = 0, index_col=0)
+    manhattan_df = real_distances.loc[real_distances.index.isin(sample_coords['NODES']), nodes]
 
 
     folder_path = f'instances/C{sample_size}P{parking_size}T{n_trucks}D{n_drones}'
@@ -77,7 +48,7 @@ def sample_generator(sample_size: int, parking_size: int, n_trucks:int, n_drones
         sample_parameters.to_excel(writer, sheet_name='PARAMETROS', index = False)
         sample_demand.to_excel(writer, sheet_name='DEMANDA', index = False)
         sample_coords.set_index('NODES').to_excel(writer, sheet_name='COORDS')
-        manhattan_dm.to_excel(writer, sheet_name='MANHATTAN')
+        manhattan_df.to_excel(writer, sheet_name='MANHATTAN')
         euclidean_dm.to_excel(writer, sheet_name='EUCLI')
             
 
@@ -247,4 +218,4 @@ Display x.L, y.L, v.L, s.L, z1.L, z2.L;
             if file_extension not in allowed_extensions or filename.startswith(('225')):
                 os.remove(file_path)  # Delete the file
 
-sample_generator(50,10,5,10)
+sample_generator(15,5,5,10)
