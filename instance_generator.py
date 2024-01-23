@@ -2,7 +2,7 @@ import gams
 import os
 from time import sleep
 
-gams_path = r"C:\GAMS\44"
+gams_path = r"C:\GAMS\45"
 folder_path = "instances"  # Replace with the path to your folder
 xlsx_files = [f for f in os.listdir(folder_path) if f.endswith(".xlsx")]
 
