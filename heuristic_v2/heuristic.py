@@ -2,6 +2,8 @@ import pandas as pd
 import os
 from typing import List, Tuple
 
+from tables import Node
+
 
 class Nodes:
     """Creates nodes with their respective attributes."""
@@ -134,10 +136,15 @@ def create_vehicles(instance_file: pd.ExcelFile) -> Tuple[List[Truck], List[Dron
 
 def read_distance_matrices(instance_file: pd.ExcelFile) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Reads distance and time matrices from the instance file."""
-    googlemaps_dm = pd.read_excel(instance_file, sheet_name="MANHATTAN", index_col=0)
-    haversine_dm = pd.read_excel(instance_file, sheet_name="EUCLI", index_col=0)
-    times_truck = pd.read_excel(instance_file, sheet_name="TIEMPOS_CAM", index_col=0)
-    times_drone = pd.read_excel(instance_file, sheet_name="TIEMPOS_DRON", index_col=0)
+    def index_col_to_string(df: pd.DataFrame) -> pd.DataFrame:
+        """Convert both index and columns of a DataFrame to string type."""
+        df.index = df.index.astype(str)
+        df.columns = df.columns.astype(str)
+        return df 
+    googlemaps_dm = index_col_to_string(pd.read_excel(instance_file, sheet_name="MANHATTAN", index_col=0))
+    haversine_dm = index_col_to_string(pd.read_excel(instance_file, sheet_name="EUCLI", index_col=0))
+    times_truck = index_col_to_string(pd.read_excel(instance_file, sheet_name="TIEMPOS_CAM", index_col=0))
+    times_drone = index_col_to_string(pd.read_excel(instance_file, sheet_name="TIEMPOS_DRON", index_col=0))
     return googlemaps_dm, haversine_dm, times_truck, times_drone
 
 
@@ -153,3 +160,40 @@ def read_instance(instance_id: str) -> Tuple[List[Nodes], pd.DataFrame, pd.DataF
 
 # Example usage:
 instance_nodes, googlemaps_dm, haversine_dm, instance_trucks, instance_drones, times_truck, times_drone = read_instance('C10P5T5D15')
+
+
+def nn_bigroute(base_nodes: List[Nodes], distance_matrix: pd.DataFrame):
+    nodes = [node for node in base_nodes if node._node_type != 'Parking Lot']
+    ncustomers = len([node for node in nodes if node._node_type == 'Customer'])
+    route = []
+    neighbours = {}
+    distance_matrix.at['0','0']
+    #construccion de vecinos ordenados de menor a mayor
+    for i in nodes:
+        vecinos = 0
+        rawlist = []
+        while vecinos < len(nodes) -1:
+            distmin = 99999
+            candidate = nodes[0]
+            for j in nodes:
+                if i.id != j.id and distance_matrix.at[i.id,j.id] < distmin and j not in rawlist:
+                    distmin = distance_matrix.at[i.id,j.id]
+                    candidate = j
+            rawlist.append(candidate)
+            vecinos += 1
+        neighbours[i.id] = rawlist
+    #construccion de ruta
+    i = nodes[0]
+    route.append(i)
+    visited = 0
+    while visited < ncustomers:
+        for j in neighbours[i.id]:
+            if j not in route:
+                route.append(j)
+                i = j
+                visited += 1
+                break
+    route.append(nodes[0])
+    return route
+
+route = nn_bigroute(instance_nodes, googlemaps_dm)
