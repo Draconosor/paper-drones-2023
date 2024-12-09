@@ -7,6 +7,7 @@ from haversine import haversine
 import os
 import gams
 import base64
+from time import sleep
 
 def dedent(my_string:str) -> str:
     lines = my_string.splitlines()
@@ -35,10 +36,12 @@ def sample_generator(objective: str,sample_size: int, parking_size: int, n_truck
                     WDR Peso del dron
                     DISTmh(i,j) MaTDist Manhattan
                     DISTec(i,j) MaTDist Euclidiana
+                    TIMET(i,j) MatTemp Camiones
+                    TIMED(i,j) MatTemp Drones
                     DEM(i) Demanda del nodo i
                     $GDXIN in.gdx
                     $LOAD i, k, l
-                    $LOADDC NDepots, NCustomers, NDrones, NTrucks, ETR, EDR, QTR, QDR, MAXDDR, WDR, DISTmh, DISTec, DEM
+                    $LOADDC NDepots, NCustomers, NDrones, NTrucks, ETR, EDR, QTR, QDR, MAXDDR, WDR, DISTmh, DISTec, TIMET, TIMED, DEM
                     $GDXIN
                     variables
                     x(i,j,k) 1 si el camion k va del nodo i al nodo j
@@ -47,16 +50,15 @@ def sample_generator(objective: str,sample_size: int, parking_size: int, n_truck
                     s(l) 1 si se usa el dron l
                     u(i) variable para subrutas
                     z1 Emisiones Totales
-                    z2 Distancias Totales
+                    z2 Makespan del vehiculo k
                     binary variable x, y, v, s
                     integer variable u
-                    free variable z
+                    free variables z1, z2
                     ;
                     equations
                     salirdepot(k) un vehiculo solo puede salir una vez del deposito
                     llegardepot(k) si el vehiculo sale del deposito debe llegar
                     llegadacliente(j) A cada cliente se llega una sola vez
-                    *salidacliente(i) De cada cliente se sale una sola vez
                     flujored(j,k) si un vehiculo llega a un nodo debe salir de el
                     relcamiondron(i,k,l) relacionar uso de dron con uso de camion
                     relcamiondron2(j,k,l)
@@ -67,15 +69,14 @@ def sample_generator(objective: str,sample_size: int, parking_size: int, n_truck
                     capdron2(l)
                     capvuelodron(l,i) no se puede exceder la capacidad de vuelo del dron
                     subtours(i,j,k) se deben evitar sub rutas en el recorrido
-                    fo1 minimizar distancia
-                    fo2 minimizar emisiones
                     dronporcamion(i,j,l) un dron puede ir en un camion
+                    fo1 Calculo z1
+                    epsi(k) Balanceo Tiempos
                     ;
 
                     salirdepot(k).. sum((j)$(ord(j) > 1), x('0',j,k)) =L= v(k);
                     llegardepot(k).. sum((i)$(ord(i) > 1), x(i,'0',k)) =E= sum((j)$(ord(j) > 1), x('0',j,k));
                     llegadacliente(j)$(ord(j) > (1+NDepots)).. sum((i,k)$(ord(i) <> ord(j)), x(i,j,k)) + sum((i,k,l)$(ord(i) <> ord(j)), y(i,j,k,l)) =E= 1;
-                    *salidacliente(i)$(ord(i) > (1+NDepots)).. sum((j,k)$(ord(i) <> ord(j)), x(i,j,k)) + sum((j,k,l)$(ord(i) <> ord(j)), y(j,i,k,l)) =E= 1;
                     flujored(j,k)$(ord(j) > 1).. sum(i$(ord(i) <> ord(j)), x(i,j,k)) =E= sum(i$(ord(i) <> ord(j)), x(j,i,k));
                     relcamiondron(i,k,l)$(ord(i) > 1 and ord(i) <= (1+NDepots)).. sum(j$(ord(i) <> ord(j)), y(i,j,k,l)) =L= sum(j$(ord(i) <> ord(j)), x(j,i,k));
                     relcamiondron2(j,k,l)$(ord(j) > 1 and ord(j) <= (1+NDepots)).. sum(i$(ord(j) <> ord(i)), y(i,j,k,l)) =L= sum(i$(ord(j) <> ord(i)), x(j,i,k));
@@ -86,17 +87,21 @@ def sample_generator(objective: str,sample_size: int, parking_size: int, n_truck
                     capdron2(l).. sum((i,j,k)$(ord(i) <> ord(j)), DEM(j) * y(i,j,k,l)) =G= s(l);
                     capvuelodron(l,i).. sum((j,k)$(ord(i) <> ord(j)), DISTec(i,j) * y(i,j,k,l)) =L= MAXDDR;
                     subtours(i,j,k)$(ord(i) > 1 and ord(j) > 1).. u(i) - u(j) + card(i) * x(i,j,k) =L= card(i) - 1;
-                    fo1.. z2 =E= sum((i,j,k)$(ord(i) <> ord(j)), DISTmh(i,j) * x(i,j,k)) + 2*sum((i,j,k,l)$(ord(i) <> ord(j)), DISTec(i,j) * y(i,j,k,l));
-                    fo2.. z1 =E= ETR * sum((i,j,k)$(ord(i) <> ord(j)), DISTmh(i,j) * x(i,j,k)) + 2*EDR * sum((i,j,k,l)$(ord(i) <> ord(j)), DISTec(i,j) * y(i,j,k,l));
                     dronporcamion(i,j,l)$(ord(i) <> ord(j)).. sum((k),y(i,j,k,l)) =l= 1;
+                    fo1.. z1 =E= ETR * sum((i,j,k)$(ord(i) <> ord(j)), DISTmh(i,j) * x(i,j,k)) + 2*EDR * sum((i,j,k,l)$(ord(i) <> ord(j)), DISTec(i,j) * y(i,j,k,l));
+                    epsi(k).. z2(k) =E= sum((i,j), x(i,j,k)*TIMET(i,j)) + sum((i,j,l), y(i,j,k,l)*TIMED(i,j));
 
                     Model Modelo1 /all/;
                     option MIP=CPLEX
                     option optcr=0.00000000000001;
-                    modelo1.Reslim = 21600;
+                    modelo1.Reslim = 7200;
+                    set workmem 128;
+                    set mip strategy file 2;
+                    set mip limits treememory 10000;
                     Solve Modelo1 using mip minimizing {objective};
-                    Display x.L, y.L, v.L, s.L, z1.L, z2.L;
+                    Display x.L, y.L, v.L, s.L, z1.L,z2.L;
                     """
+
 
 
     np.random.seed(0)
@@ -142,15 +147,16 @@ def sample_generator(objective: str,sample_size: int, parking_size: int, n_truck
         sample_demand.to_excel(writer, sheet_name='DEMANDA', index = False)
         sample_coords.set_index('NODES').to_excel(writer, sheet_name='COORDS')
         manhattan_df.to_excel(writer, sheet_name='MANHATTAN')
-        truck_times.to_excel(writer, sheet_name='TIEMPOS CAM')
-        drone_times.to_excel(writer, sheet_name='TIEMPOS DRON')
+        truck_times.to_excel(writer, sheet_name='TIEMPOS_CAM')
+        drone_times.to_excel(writer, sheet_name='TIEMPOS_DRON')
         euclidean_dm.to_excel(writer, sheet_name='EUCLI')
             
 
     xlsx_files = [f for f in os.listdir(folder_path) if f.endswith(".xlsx")]
 
     ws = gams.GamsWorkspace(working_directory=folder_path)
-    main_xml = os.path.join(folder_path, f"NEOS INSTRUCTION.xml")  # Replace with the path to your xml file
+    main_xml = os.path.join(folder_path, f"NEOS INSTRUCTION {objective}.xml")  # Replace with the path to your xml file
+    main_gms = os.path.join(folder_path, f"MODEL {objective}.gms")
     for file in xlsx_files:
         instance_name = file.split('.')[0]
         instance_gen = f"""sets
@@ -172,6 +178,8 @@ def sample_generator(objective: str,sample_size: int, parking_size: int, n_truck
                             WDR Peso del dron
                             DISTmh(i,j) MaTDist Manhattan
                             DISTec(i,j) MaTDist Euclidiana
+                            TIMET(i,j) MatTemp Camiones
+                            TIMED(i,j) MatTemp Drones
                             DEM(i) Demanda del nodo i
                             $onecho > tasks.txt
                             dset=i rng=PARAMETROS!A2 rdim=1
@@ -189,11 +197,15 @@ def sample_generator(objective: str,sample_size: int, parking_size: int, n_truck
                             par=WDR rng=PARAMETROS!N2 rdim=0
                             par=DISTmh rng=MANHATTAN!A1 rdim=1 cdim=1
                             par=DISTec rng=EUCLI!A1 rdim=1 cdim=1
+                            par=TIMET rng=TIEMPOS_CAM!A1 rdim=1 cdim=1
+                            par=TIMED rng=TIEMPOS_DRON!A1 rdim=1 cdim=1
                             par=DEM rng=DEMANDA!A2 rdim=1
                             $offecho
                             $CALL GDXXRW input={instance_name}.xlsx output=in.gdx trace=3 @tasks.txt"""
         job = ws.add_job_from_string(dedent(instance_gen))
         job.run(create_out_db=False)
+        with open(main_gms, 'w') as file:
+            file.write(dedent(model))
         with open(main_xml, 'w') as file:
             requests = f"""<document>
                                 <category>milp</category>
@@ -212,7 +224,7 @@ def sample_generator(objective: str,sample_size: int, parking_size: int, n_truck
 
                                 <wantlst></wantlst>
 
-                                <wantlog></wantlog>
+                                <wantlog><![CDATA[yes]]></wantlog>
 
                                 <comments><![CDATA[]]></comments>
 
@@ -220,7 +232,7 @@ def sample_generator(objective: str,sample_size: int, parking_size: int, n_truck
             file.write(dedent(requests))
 
     # Specify the list of allowed file extensions
-    allowed_extensions = [".gdx", ".xlsx",".xml"]  # Add your desired extensions
+    allowed_extensions = [".gdx", ".xlsx",".xml", ".gms"]  # Add your desired extensions
 
     # Iterate through the files in the directory
     for filename in os.listdir(folder_path):
@@ -235,15 +247,15 @@ def sample_generator(objective: str,sample_size: int, parking_size: int, n_truck
                 os.remove(file_path)  # Delete the file
 
 def big_sample():
-    customer_sample = (5,10,15,20,25,30)
+    customer_sample = (10,20,30)
     parking_sample = (5,10,15)
-    trucks_sample = (3,5,7,9,11)
-    drones_sample = (5,7,9,11,13,15)
+    trucks_sample = (5,)
+    drones_sample = (15,)
 
     for ncustomers in customer_sample:
         for nparkings in parking_sample:
             for ntrucks in trucks_sample:
                 for ndrones in drones_sample:
                     sample_generator(objective='z1',sample_size=ncustomers, parking_size=nparkings, n_trucks=ntrucks, n_drones=ndrones)
-                    sample_generator(objective='z2',sample_size=ncustomers, parking_size=nparkings, n_trucks=ntrucks, n_drones=ndrones)
-sample_generator(objective='z1',sample_size=10, parking_size=5, n_trucks=5, n_drones=5)
+
+big_sample()

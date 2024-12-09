@@ -27,17 +27,35 @@ Python source code - Python XML-RPC client for NEOS Server
 import os
 import sys
 import xmlrpc.client as xmlrpclib
-import pandas as pd
 from time import sleep
+import pandas as pd
 
 def get_subfolders(path):
     subfolders = [f.name for f in os.scandir(path) if f.is_dir() and f.name != 'results']
     return subfolders
 
+def create_folder(directory):
+    # Check if the directory already exists
+    if os.path.exists(directory):
+        # If it exists, remove it
+        try:
+            os.rmdir(directory)
+            print(f"Existing directory '{directory}' removed.")
+        except OSError as e:
+            print(f"Error removing directory '{directory}': {e}")
+            return
+
+    # Create the new directory
+    try:
+        os.makedirs(directory)
+        print(f"Directory '{directory}' created.")
+    except OSError as e:
+        print(f"Error creating directory '{directory}': {e}")
+
 
 class NEOSJob:
     def __init__(self, username:str, password:str, instance:str, objective: str):
-        self.instance_id = instance
+        self.instance_id = instance + objective
         instance = os.path.join(r'instances',instance)
         self.neos = xmlrpclib.ServerProxy("https://neos-server.org:3333")
         self.username = username
@@ -64,8 +82,8 @@ class NEOSJob:
                 with open(os.path.join(self.instance, f'NEOS RESULTS {self.instance_id} {self.objective}.lst'), 'w') as file:
                     file.write(msg.data.decode())      
                 with open(os.path.join(path, f'NEOS RESULTS {self.instance_id} {self.objective}.zip'), 'wb') as file:
-                    file.write(files.data)
-            print(f"Data saved to {os.path.join(self.instance, f'NEOS RESULTS {self.instance_id} {self.objective}.lst')}")
+                    file.write(files.data)    
+            print(f"Data saved to {os.path.join(self.instance, f'NEOS RESULTS {self.instance} {self.objective}.lst')}")
 
 
 def send_to_NEOS(job: NEOSJob):
@@ -99,50 +117,52 @@ def send_to_NEOS(job: NEOSJob):
             job.set_job_credentials(job_id=jobNumber, job_password=password)
             return job
         else:
-            print(xml)
             raise Exception('Job not scheduled properly')
-        
-
-objectives = ('z1',) 
-
-def send_batch_to_neos():
+def main():       
+    instances = [i for i in os.listdir('instances') if i.startswith('C')]
     jobs_df = pd.DataFrame(columns = ['instance', 'objective','jobId', 'password'])
-    for instance in [x for x in get_subfolders(r'instances') if 'C' in x]:
-        for obj in objectives:
-            myjob = NEOSJob(os.environ.get('NEOS_USERNAME'), os.environ.get('NEOS_PASSWORD'), instance= instance, objective = obj)
+    c = 0
+    for ins in instances:
+        if c >= 15:
+            sleep(7260)
+            c = 0
+
+        steps = [i[-12:][:8] for i in os.listdir(os.path.join('instances', ins)) if i.endswith('pct.gms')]
+        for name in steps:
+            myjob = NEOSJob(os.environ.get('NEOS_USERNAME'), os.environ.get('NEOS_PASSWORD'), ins,name)
             uploaded_job = send_to_NEOS(myjob)
-            mydata = pd.DataFrame({'instance': [uploaded_job.instance], 'objective': [uploaded_job.objective],'jobId':[uploaded_job.job_id], 'password':[uploaded_job.job_password]})
+            mydata = pd.DataFrame({'instance': [uploaded_job.instance_id], 'objective': [uploaded_job.objective],'jobId':[uploaded_job.job_id], 'password':[uploaded_job.job_password]})
             jobs_df = pd.concat([jobs_df, mydata])
-            sleep(1)
-    with pd.ExcelWriter('jobs_df.xlsx', engine='xlsxwriter') as writer:
-        jobs_df.to_excel(writer, sheet_name = 'Jobs', index = 'False')
-    print('Success!')
-
-def create_folder(directory):
-    # Check if the directory already exists
-    if os.path.exists(directory):
-        # If it exists, remove it
-        try:
-            os.rmdir(directory)
-            print(f"Existing directory '{directory}' removed.")
-        except OSError as e:
-            print(f"Error removing directory '{directory}': {e}")
-            return
-
-    # Create the new directory
-    try:
-        os.makedirs(directory)
-        print(f"Directory '{directory}' created.")
-    except OSError as e:
-        print(f"Error creating directory '{directory}': {e}")
+        c += 5
+    with pd.ExcelWriter('jobs_pct_df.xlsx', engine='xlsxwriter') as writer:
+        jobs_df.to_excel(writer, sheet_name = 'Jobs', index = False)
 
 def retrieve_batch_results():
-    jobs_df = pd.read_excel('jobs_df.xlsx')
+    jobs_df = pd.read_excel('jobs_pct_df.xlsx')
     ## MAKE RESULTS DIR
-    create_folder(os.path.join(r'instances', 'results'))
+    create_folder(os.path.join(r'instances', 'results pcts'))
     for index, row in jobs_df.iterrows():
-        temp_job = NEOSJob(os.environ.get('NEOS_USERNAME'), os.environ.get('NEOS_PASSWORD'), row.instance, row.objective)
+        temp_job = NEOSJob(os.environ.get('NEOS_USERNAME'), os.environ.get('NEOS_PASSWORD'), row.instance[:-8], row.objective)
         temp_job.set_job_credentials(row.jobId, row.password)
-        temp_job.retrieve_results(path = os.path.join(r'instances', 'results'))
+        temp_job.retrieve_results(path = os.path.join(r'instances', 'results pcts'))
+
+
+def extract_and_print_substr(file_path):
+    with open(file_path, 'r') as file:
+        lines = file.readlines()
+        if len(lines) >= 55:
+            line_55 = lines[54]  # Line numbering starts from 0
+            if len(line_55) >= 44:  # Ensure the line is long enough
+                between_30_and_minus_14 = line_55[29:-14]
+                print(f"File: {file_path}, {between_30_and_minus_14}")
+
+def iterate_over_files(path):
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            if file.endswith('.lst'):
+                file_path = os.path.join(root, file)
+                extract_and_print_substr(file_path)
 
 retrieve_batch_results()
+# Replace 'your_path_here' with the actual path you want to iterate over
+#iterate_over_files(r'C:\Users\Carlos\OneDrive - Universidad de la Sabana\MGOP\DRONES 2023 2\paper-drones-2023\instances\results pcts')
