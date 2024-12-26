@@ -1,3 +1,5 @@
+from copy import deepcopy
+import enum
 from time import time
 import pandas as pd
 import os
@@ -77,6 +79,14 @@ class Vehicle:
     @property
     def is_used(self) -> bool:
         return self.used_capacity > 0
+    
+    def __eq__(self, other):
+        if isinstance(other, Vehicle):
+            return self.id == other.id
+        return False
+    
+    def __hash__(self):
+        return hash(self.id)
 
     def reset_vehicle(self):
         self.route = []
@@ -160,12 +170,14 @@ def nn_bigroute(base_nodes: List[Nodes], distance_matrix: pd.DataFrame) -> List[
     route.append(nodes[0])
     return route
 
-class droneSaving:
-    def __init__(self, parking_lot: Nodes, to: Nodes, saving: float, prev_node: Nodes = None) -> None:
+class Saving:
+    def __init__(self, parking_lot: Nodes, to: Nodes, saving: float, prev_node: Nodes = None, truck_a: Truck = None, truck_b: Truck = None) -> None:
         self.parking_lot = parking_lot
         self.to = to
         self.prev_node = prev_node
         self._saving = saving
+        self.truck_a = truck_a
+        self.truck_b = truck_b
         self.used = False
         
     @property
@@ -180,17 +192,17 @@ class droneSaving:
         return f'Saving from {self.prev_node} to parking {self.parking_lot.id} using drone to {self.to.id} of value {self.saving}'
     
     def __eq__(self, other):
-        if isinstance(other, droneSaving):
+        if isinstance(other, Saving):
             return self.saving == other.saving
         return False
     
     def __lt__(self, other):
-        if not isinstance(other, droneSaving):
+        if not isinstance(other, Saving):
             return NotImplemented
         return self.saving < other.saving
 
     def __gt__(self, other):
-        if not isinstance(other, droneSaving):
+        if not isinstance(other, Saving):
             return NotImplemented
         return self.saving > other.saving
 
@@ -224,7 +236,7 @@ def assign_drones_bigroute(base_nodes: List[Nodes], bigroute: List[Nodes],
                 
                 saving = initial_emissions - (new_emissions + drone_emissions)
                 if saving > 0:
-                    savings.append(droneSaving(p_lot, target, saving))
+                    savings.append(Saving(p_lot, target, saving))
     
     # Sort savings once
     savings.sort(reverse=True)
@@ -361,7 +373,7 @@ def drone_launch(base_nodes: List[Nodes], drones: List[Drone], trucks: List[Truc
                     saving = route_emissions - (new_emissions + drone_emissions)
                     if saving > 0:
                         savings_per_truck[truck].append(
-                            droneSaving(p_lot, target, saving, current)
+                            Saving(p_lot, target, saving, current)
                         )
         
         if savings_per_truck[truck]:
@@ -493,6 +505,96 @@ def read_instance(instance_id: str) -> Tuple[List[Nodes], pd.DataFrame, pd.DataF
     googlemaps_dm, haversine_dm, times_truck, times_drone = read_distance_matrices(instance_file, etr, edr)
     
     return instance_nodes, googlemaps_dm, haversine_dm, times_truck, times_drone, instance_trucks, instance_drones
+
+def random_truck_paired_select(trucks: List[Truck]) -> List[Truck]:
+    used_trucks = [truck for truck in trucks if truck.is_used and len(truck.route) >= 3]
+    indices = np.arange(len(used_trucks))
+    permuted_indices = np.random.permutation(indices)
+    return [used_trucks[i] for i in permuted_indices]
+
+def swap_interruta_random(truck_a: Truck, truck_b: Truck, matrix: pd.DataFrame, cache: RouteCache):
+    failures = 0
+    success = False
+    while not success and failures <= 50:
+        node_a: Nodes = np.random.choice(truck_a.route[1:-1])
+        node_b: Nodes = np.random.choice(truck_b.route[1:-1])
+        if truck_a.used_capacity - node_a._demand + node_b._demand <= truck_a.capacity and truck_b.used_capacity - node_b._demand + node_a._demand <= truck_b.capacity:
+            print(node_a, node_b)
+            truck_a.route[truck_a.route.index(node_a)] = node_b
+            truck_a.used_capacity = truck_a.used_capacity - node_a._demand + node_b._demand
+            truck_b.route[truck_b.route.index(node_b)] = node_a
+            truck_b.used_capacity = truck_b.used_capacity - node_b._demand + node_a._demand
+            truck_a.route = twoopt_until_local_optimum(truck_a.route, matrix, cache)
+            truck_b.route = twoopt_until_local_optimum(truck_b.route, matrix, cache)
+            success = True
+        else:
+            failures += 1
+
+def open_truck(trucks: List[Truck], matrix: pd.DataFrame, cache: RouteCache):
+    for i, truck in enumerate(trucks):
+        if not truck.is_used and i > 0 and len(trucks[i-1].route) > 3:
+            node_0 = trucks[i-1].route[0]
+            prev_truck_route = trucks[i-1].route[1:-1]
+            # Find the middle index
+            middle_index = len(prev_truck_route) // 2
+
+            # Split the list into two halves
+            first_half = prev_truck_route[:middle_index]
+            second_half = prev_truck_route[middle_index:]
+            
+            # Assign Routes
+            ## Previous Truck
+            trucks[i-1].route = first_half
+            trucks[i-1].route.append(node_0)
+            trucks[i-1].route.insert(0, node_0)
+            
+            ## New Truck
+            for drone in trucks[i-1].drones:
+                if drone.is_used:
+                    if drone.route[0] in second_half:
+                        drone.assigned_to = truck.id
+                        truck.drones.append(drone)
+                        
+            trucks[i-1].drones = [d for d in trucks[i-1].drones if d.assigned_to == trucks[i-1].id]
+            
+            truck.route = second_half
+            truck.route.append(node_0)
+            truck.route.insert(0, node_0)
+            
+            twoopt_until_local_optimum(trucks[i-1].route, matrix, cache)
+            twoopt_until_local_optimum(truck.route, matrix, cache)
+            
+            break
+            
+def close_parking_lot_random(trucks: List[Truck], truck_matrix: pd.DataFrame, drone_matrix: pd.DataFrame, truck_cache: RouteCache):
+    truck = np.random.choice([t for t in trucks if t.is_used])
+    lots = [p for p in truck.route if p.node_type == 'Parking Lot']
+    if lots:
+        to_close: Nodes = np.random.choice(lots)
+        remaining = lots[:]
+        remaining.remove(to_close)
+        print(f'Closed {to_close} on truck {truck.id}')
+        if remaining:
+            for drone in truck.drones:
+                if drone.route[0] == to_close:
+                    ## Look for best node available
+                    best_cost = 10e6
+                    best_route = []
+                    for p_lot in remaining:
+                        route = [p_lot, drone.visit_node, p_lot]
+                        cost = calculate_route_metric(route, drone_matrix, RouteCache())
+                        if cost <= drone.max_distance and cost < best_cost:
+                            best_cost = cost
+                            best_route = route
+                    if best_route:
+                        drone.route = best_route
+                    else:
+                        truck.route.insert(-2, drone.visit_node)
+                        drone.reset_vehicle()
+                        
+        twoopt_until_local_optimum(truck.route, truck_matrix, truck_cache)
+
+          
 
 def main(instance_id: str):
     """Main function with performance monitoring."""
